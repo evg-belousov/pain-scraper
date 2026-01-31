@@ -24,8 +24,8 @@ async def run_collection(sources: list, limit: int):
     print("=" * 60)
 
     # Validate API key
-    if not os.getenv("ANTHROPIC_API_KEY"):
-        print("\nError: ANTHROPIC_API_KEY not set in .env file")
+    if not os.getenv("OPENAI_API_KEY"):
+        print("\nError: OPENAI_API_KEY not set in .env file")
         return
 
     all_data = []
@@ -69,7 +69,7 @@ async def run_collection(sources: list, limit: int):
         return
 
     # Classification
-    print("\n Analyzing with Claude...")
+    print("\n Analyzing with GPT...")
     classifier = PainClassifier()
 
     def progress(current, total):

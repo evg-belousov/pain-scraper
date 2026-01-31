@@ -1,6 +1,7 @@
 # src/analyzer/classifier.py
 
-import anthropic
+import os
+from openai import OpenAI
 import json
 from typing import Optional, Dict, List, Callable
 
@@ -10,8 +11,8 @@ from src.analyzer.prompts import PAIN_CLASSIFICATION_PROMPT
 
 class PainClassifier:
     def __init__(self):
-        self.client = anthropic.Anthropic()
-        self.model = "claude-sonnet-4-20250514"
+        self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        self.model = "gpt-4o-mini"  # Fast and cheap, use "gpt-4o" for better quality
 
     def classify(self, data: RawPainData) -> Optional[Dict]:
         """Classify single item."""
@@ -23,13 +24,13 @@ class PainClassifier:
         )
 
         try:
-            response = self.client.messages.create(
+            response = self.client.chat.completions.create(
                 model=self.model,
                 max_tokens=1500,
                 messages=[{"role": "user", "content": prompt}]
             )
 
-            result_text = response.content[0].text.strip()
+            result_text = response.choices[0].message.content.strip()
 
             # Clean markdown
             if result_text.startswith("```"):
