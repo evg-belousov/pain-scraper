@@ -1,93 +1,65 @@
 # src/config.py
 
-SUBREDDITS = [
-    # Small business general
-    "smallbusiness",
-    "Entrepreneur",
-    "startups",
-
-    # HoReCa
-    "restaurateur",
-    "Restaurant_Managers",
-    "coffeeshops",
-    "barista",
-    "KitchenConfidential",
-
-    # Medical
-    "dentistry",
-    "Dentists",
-    "optometry",
-    "veterinary",
-
-    # Real estate
-    "realtors",
-    "PropertyManagement",
-
-    # Services
-    "HVAC",
-    "Plumbing",
-    "electricians",
-    "AutoDetailing",
-    "lawncare",
-
-    # E-commerce
-    "ecommerce",
-    "FulfillmentByAmazon",
-    "shopify",
-
-    # Freelance and agencies
-    "freelance",
-    "agency",
-    "web_design",
-    "marketing",
-]
-
-PAIN_KEYWORDS = [
-    # Explicit pain signals
-    "nightmare",
+# Hacker News
+HN_KEYWORDS = [
+    "Ask HN",
     "frustrated",
-    "frustrating",
+    "struggling",
+    "problem",
     "hate",
-    "worst part",
-    "struggle with",
-    "pain in the ass",
-    "killing me",
-    "drives me crazy",
+    "nightmare",
     "waste time",
-    "waste money",
-    "losing money",
-    "costs me",
-    "expensive",
-
-    # Looking for solutions
     "anyone else",
     "how do you handle",
-    "is there a tool",
-    "is there a way",
+    "looking for tool",
     "wish there was",
-    "looking for",
-    "need help with",
-    "any recommendations",
-    "what software",
-    "what do you use for",
+]
 
-    # Time costs
-    "hours every",
-    "spend too much time",
-    "takes forever",
-    "manual process",
-    "doing it manually",
+HN_STORY_TYPES = [
+    "ask",      # Ask HN posts
+    "show",     # Show HN (comments have feedback)
+]
 
-    # Software complaints
-    "too expensive",
-    "overpriced",
-    "too complicated",
-    "doesn't work",
-    "broken",
-    "missing feature",
+# Indie Hackers - interview categories
+IH_CATEGORIES = [
+    "podcast",
+    "interview",
+]
+
+# App Store - business apps to analyze reviews
+APPS_TO_ANALYZE = [
+    # Restaurants / HoReCa
+    {"name": "Toast POS", "id": "1111252754", "platform": "ios"},
+    {"name": "Square POS", "id": "335393788", "platform": "ios"},
+    {"name": "7shifts", "id": "1073041402", "platform": "ios"},
+
+    # Small business
+    {"name": "QuickBooks", "id": "584947037", "platform": "ios"},
+    {"name": "Wave Invoicing", "id": "881670290", "platform": "ios"},
+    {"name": "Jobber", "id": "620098427", "platform": "ios"},
+
+    # CRM / Sales
+    {"name": "HubSpot", "id": "1107711722", "platform": "ios"},
+    {"name": "Pipedrive", "id": "597826306", "platform": "ios"},
+
+    # Scheduling
+    {"name": "Calendly", "id": "1451094657", "platform": "ios"},
+    {"name": "Acuity Scheduling", "id": "1179447119", "platform": "ios"},
+]
+
+# YouTube - channels and search queries
+YOUTUBE_SEARCHES = [
+    "restaurant owner biggest mistake",
+    "small business owner struggles",
+    "why I closed my business",
+    "coffee shop owner problems",
+    "freelancer biggest challenge",
+    "startup founder lessons learned",
+    "dental practice management problems",
+    "real estate agent struggles",
 ]
 
 # Minimum thresholds
-MIN_UPVOTES = 5
-MIN_COMMENTS = 3
-MAX_POST_AGE_DAYS = 90
+MIN_HN_SCORE = 10
+MIN_REVIEW_LENGTH = 100
+MIN_YOUTUBE_LIKES = 50

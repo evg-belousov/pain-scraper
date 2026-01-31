@@ -1,91 +1,92 @@
-# Pain Point Scraper
+# Pain Point Collector
 
-Automated tool for collecting and analyzing business pain points from Reddit. The goal is to find validated problems for building SaaS products.
+Collect and analyze business pain points from legal public sources.
 
-## Features
+## Sources
 
-- Scrapes Reddit posts from business-focused subreddits
-- Filters posts by upvotes, comments, and age
-- Classifies pain points using Claude AI
-- Stores results in SQLite database
-- Interactive Streamlit dashboard for exploring results
+- **Hacker News** - Free API, Ask HN posts and discussions
+- **Indie Hackers** - Public interviews with founders
+- **App Store** - Negative reviews (1-3 stars) on business apps
+- **YouTube** - Comments on relevant videos (requires API key)
 
 ## Setup
 
-### 1. Create Reddit App
+### 1. Configure Environment
 
-1. Go to https://www.reddit.com/prefs/apps
-2. Click "Create App" or "Create Another App"
-3. Select "script" as the application type
-4. Set redirect URI to `http://localhost:8080`
-5. Copy the client ID (under the app name) and client secret
-
-### 2. Configure Environment
-
-Copy `.env.example` to `.env` and fill in your credentials:
+Copy `.env.example` to `.env`:
 
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env`:
+Edit `.env` and add your API keys:
 
 ```
-REDDIT_CLIENT_ID=your_reddit_client_id
-REDDIT_CLIENT_SECRET=your_reddit_client_secret
-ANTHROPIC_API_KEY=your_anthropic_api_key
+ANTHROPIC_API_KEY=sk-ant-xxxxx
+YOUTUBE_API_KEY=xxxxx  # Optional
 ```
 
-### 3. Install Dependencies
+### 2. Install Dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
+### 3. (Optional) Get YouTube API Key
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a project or select existing
+3. Enable YouTube Data API v3
+4. Create credentials (API Key)
+5. Add to `.env` file
+
 ## Usage
 
-### Collect Data
-
-Run the scraper to collect and analyze posts:
+### Collect from All Sources
 
 ```bash
-python -m src.main --limit 50
+python -m src.main --sources all --limit 50
 ```
 
-### Launch Dashboard
+### Collect from Specific Sources
 
-View and explore collected pain points:
+```bash
+# Hacker News + App Store only
+python -m src.main --sources hn appstore --limit 100
+
+# Indie Hackers only
+python -m src.main --sources ih --limit 30
+```
+
+### Run Dashboard
 
 ```bash
 streamlit run src/dashboard/app.py
 ```
 
-### Scrape Specific Subreddits
-
-```bash
-python -m src.main --subreddits restaurateur dentistry smallbusiness --limit 100
-```
-
 ## Project Structure
 
 ```
-pain-scraper/
+pain-collector/
 ├── src/
-│   ├── scraper/
-│   │   ├── reddit.py         # Reddit API client
-│   │   └── keywords.py       # Keywords for search
+│   ├── collectors/
+│   │   ├── base.py            # Base collector class
+│   │   ├── hackernews.py      # HN API collector
+│   │   ├── indiehackers.py    # IH interview scraper
+│   │   ├── appstore.py        # App Store reviews
+│   │   └── youtube.py         # YouTube comments
 │   ├── analyzer/
-│   │   ├── classifier.py     # Claude classification
-│   │   └── prompts.py        # Analysis prompts
+│   │   ├── classifier.py      # Claude classification
+│   │   └── prompts.py         # Analysis prompts
 │   ├── storage/
-│   │   ├── database.py       # SQLite storage
-│   │   └── models.py         # Data models
+│   │   ├── database.py        # SQLite storage
+│   │   └── models.py          # Data models
 │   ├── dashboard/
-│   │   └── app.py            # Streamlit dashboard
-│   ├── config.py             # Configuration
-│   └── main.py               # Entry point
+│   │   └── app.py             # Streamlit dashboard
+│   ├── config.py              # Configuration
+│   └── main.py                # Entry point
 ├── data/
-│   └── pains.db              # SQLite database
+│   └── pains.db               # SQLite database
 ├── requirements.txt
 ├── .env.example
 └── README.md
@@ -93,27 +94,27 @@ pain-scraper/
 
 ## Output
 
-- SQLite database: `data/pains.db`
-- Dashboard: http://localhost:8501
+- **SQLite database:** `data/pains.db`
+- **Dashboard:** http://localhost:8501
 
-## Subreddits Covered
+## Apps Analyzed (App Store)
 
-- **Small Business**: smallbusiness, Entrepreneur, startups
-- **HoReCa**: restaurateur, Restaurant_Managers, coffeeshops, KitchenConfidential
-- **Medical**: dentistry, Dentists, optometry, veterinary
-- **Real Estate**: realtors, PropertyManagement
-- **Services**: HVAC, Plumbing, electricians, AutoDetailing, lawncare
-- **E-commerce**: ecommerce, FulfillmentByAmazon, shopify
-- **Freelance/Agencies**: freelance, agency, web_design, marketing
+- Toast POS, Square POS, 7shifts (Restaurants)
+- QuickBooks, Wave Invoicing, Jobber (Small Business)
+- HubSpot, Pipedrive (CRM/Sales)
+- Calendly, Acuity Scheduling (Scheduling)
 
-## Pain Analysis
+## Pain Analysis Fields
 
 Each identified pain point includes:
 
-- **Severity** (1-10): How painful is this problem?
-- **Frequency**: How often does it occur?
-- **Financial Impact**: Cost implications
-- **Time Impact**: Time wasted
-- **Willingness to Pay**: Would users pay for a solution?
-- **AI Solvable**: Can AI help solve this?
-- **Product Idea**: Suggested solution concept
+- **Industry** - restaurant, dental, saas, ecommerce, etc.
+- **Role** - owner, founder, manager, employee
+- **Severity** (1-10) - How painful is this problem?
+- **Frequency** - daily, weekly, monthly, rare
+- **Impact Type** - time, money, stress, growth
+- **Willingness to Pay** - none, low, medium, high
+- **AI Solvable** - Can AI help solve this?
+- **Solution Complexity** - simple, medium, complex
+- **Product Idea** - Suggested solution concept
+- **Key Quotes** - Exact quotes from source

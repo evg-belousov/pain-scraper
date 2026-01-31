@@ -13,25 +13,33 @@ from src.storage.database import PainDatabase
 
 
 def main():
-    st.set_page_config(
-        page_title="Pain Point Explorer",
-        page_icon="🔍",
-        layout="wide"
-    )
+    st.set_page_config(page_title="Pain Point Explorer", page_icon="🔍", layout="wide")
 
     st.title("Pain Point Explorer")
-    st.markdown("*Validated business problems from Reddit*")
 
     db = PainDatabase()
+    summary = db.get_summary()
 
-    # Sidebar filters
+    # Metrics
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Total Pains", summary["total"])
+    col2.metric("Industries", len(summary["by_industry"]))
+    col3.metric("Sources", len(summary["by_source"]))
+    high_severity_count = len([p for p in db.get_top_pains(min_severity=7, limit=1000)])
+    col4.metric("High Severity (7+)", high_severity_count)
+
+    st.markdown("---")
+
+    # Filters
     st.sidebar.header("Filters")
 
-    industries = db.get_industries_summary()
-    industry_options = ["All"] + [i["industry"] for i in industries if i["industry"]]
-    selected_industry = st.sidebar.selectbox("Industry", industry_options)
+    industries = ["All"] + [i["industry"] for i in summary["by_industry"] if i["industry"]]
+    selected_industry = st.sidebar.selectbox("Industry", industries)
 
-    min_severity = st.sidebar.slider("Minimum Severity", 1, 10, 5)
+    sources = ["All"] + [s["source"] for s in summary["by_source"] if s["source"]]
+    selected_source = st.sidebar.selectbox("Source", sources)
+
+    min_severity = st.sidebar.slider("Min Severity", 1, 10, 5)
 
     wtp_filter = st.sidebar.multiselect(
         "Willingness to Pay",
@@ -41,52 +49,29 @@ def main():
 
     ai_solvable = st.sidebar.checkbox("AI Solvable Only", value=False)
 
-    # Main content - metrics
-    col1, col2, col3, col4 = st.columns(4)
+    # Summary tables
+    col1, col2 = st.columns(2)
 
     with col1:
-        total_pains = len(db.get_top_pains(min_severity=1, limit=10000))
-        st.metric("Total Pains", total_pains)
+        st.subheader("By Industry")
+        if summary["by_industry"]:
+            df_ind = pd.DataFrame(summary["by_industry"])
+            if "avg_severity" in df_ind.columns:
+                df_ind["avg_severity"] = df_ind["avg_severity"].round(1)
+            st.dataframe(df_ind, hide_index=True)
 
     with col2:
-        high_severity = len(db.get_top_pains(min_severity=8, limit=10000))
-        st.metric("Critical (8+)", high_severity)
-
-    with col3:
-        st.metric("Industries", len(industries))
-
-    with col4:
-        high_wtp = sum(i["high_wtp_count"] or 0 for i in industries)
-        st.metric("High WTP", int(high_wtp))
+        st.subheader("By Source")
+        if summary["by_source"]:
+            df_src = pd.DataFrame(summary["by_source"])
+            st.dataframe(df_src, hide_index=True)
 
     st.markdown("---")
 
-    # Industry overview
-    st.subheader("Industries Overview")
-
-    if industries:
-        df_industries = pd.DataFrame(industries)
-        if "avg_severity" in df_industries.columns:
-            df_industries["avg_severity"] = df_industries["avg_severity"].round(1)
-        st.dataframe(
-            df_industries,
-            column_config={
-                "industry": "Industry",
-                "count": "Pain Count",
-                "avg_severity": "Avg Severity",
-                "high_wtp_count": "High WTP"
-            },
-            hide_index=True
-        )
-
-    st.markdown("---")
-
-    # Pain list
-    st.subheader("Top Pains")
-
-    industry_filter = None if selected_industry == "All" else selected_industry
+    # Get filtered pains
     pains = db.get_top_pains(
-        industry=industry_filter,
+        industry=None if selected_industry == "All" else selected_industry,
+        source=None if selected_source == "All" else selected_source,
         min_severity=min_severity,
         limit=100
     )
@@ -98,24 +83,17 @@ def main():
     if ai_solvable:
         pains = [p for p in pains if p.get("solvable_with_ai")]
 
-    if not pains:
-        st.info("No pains found matching the current filters. Try adjusting the filters or run the scraper to collect more data.")
-    else:
-        for pain in pains[:20]:
-            severity = pain.get("severity", 0)
-            if severity >= 8:
-                severity_color = "🔴"
-            elif severity >= 6:
-                severity_color = "🟡"
-            else:
-                severity_color = "🟢"
+    # Display
+    st.subheader(f"Top Pains ({len(pains)} found)")
 
-            with st.expander(
-                f"{severity_color} **{pain.get('pain_title')}** | "
-                f"r/{pain.get('subreddit')} | "
-                f"Severity: {severity}/10 | "
-                f"WTP: {pain.get('willingness_to_pay')}"
-            ):
+    if not pains:
+        st.info("No pains found matching the current filters. Try adjusting the filters or run the collector to gather more data.")
+    else:
+        for pain in pains[:30]:
+            severity = pain.get("severity", 0)
+            color = "🔴" if severity >= 8 else "🟡" if severity >= 6 else "🟢"
+
+            with st.expander(f"{color} {pain.get('pain_title')} | {pain.get('industry')} | Severity: {severity}/10"):
                 col1, col2 = st.columns([2, 1])
 
                 with col1:
@@ -128,20 +106,20 @@ def main():
 
                     if quotes:
                         st.markdown("**Key Quotes:**")
-                        for quote in quotes[:3]:
-                            st.markdown(f"> {quote}")
+                        for q in quotes[:2]:
+                            st.markdown(f"> {q}")
 
-                    st.markdown(f"**Product Idea:** {pain.get('potential_product_idea')}")
-                    st.markdown(f"[View Original Post]({pain.get('post_url')})")
+                    st.markdown(f"**Product Idea:** {pain.get('potential_product')}")
+                    st.markdown(f"[View Source]({pain.get('source_url')})")
 
                 with col2:
-                    st.markdown(f"**Industry:** {pain.get('industry')}")
+                    st.markdown(f"**Source:** {pain.get('source')}")
                     st.markdown(f"**Role:** {pain.get('role')}")
                     st.markdown(f"**Frequency:** {pain.get('frequency')}")
-                    st.markdown(f"**Financial Impact:** {pain.get('financial_impact')}")
-                    st.markdown(f"**Time Impact:** {pain.get('time_impact')}")
-                    st.markdown(f"**Complexity:** {pain.get('solution_complexity')}")
+                    st.markdown(f"**Impact:** {pain.get('impact_type')}")
+                    st.markdown(f"**WTP:** {pain.get('willingness_to_pay')}")
                     st.markdown(f"**AI Solvable:** {'Yes' if pain.get('solvable_with_ai') else 'No'}")
+                    st.markdown(f"**Complexity:** {pain.get('solution_complexity')}")
 
                     try:
                         tags = json.loads(pain.get("tags", "[]"))
@@ -149,7 +127,7 @@ def main():
                         tags = []
 
                     if tags:
-                        st.markdown(f"**Tags:** {', '.join(tags)}")
+                        st.markdown(f"**Tags:** {', '.join(tags[:5])}")
 
 
 if __name__ == "__main__":

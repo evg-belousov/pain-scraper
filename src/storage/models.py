@@ -8,12 +8,11 @@ from typing import List, Optional
 @dataclass
 class Pain:
     id: int
-    post_id: str
-    post_url: str
-    subreddit: str
+    source: str
+    source_url: str
+    source_id: str
 
     industry: str
-    sub_industry: Optional[str]
     role: str
 
     pain_title: str
@@ -21,22 +20,19 @@ class Pain:
 
     severity: int
     frequency: str
-    financial_impact: str
-    time_impact: str
-    emotional_intensity: int
+    impact_type: str
 
     willingness_to_pay: str
     solvable_with_software: bool
     solvable_with_ai: bool
     solution_complexity: str
 
-    potential_product_idea: str
+    potential_product: str
     key_quotes: List[str]
     tags: List[str]
 
-    upvotes: int
-    num_comments: int
+    original_score: Optional[int]
     confidence: float
 
+    collected_at: datetime
     created_at: datetime
-    post_created: datetime

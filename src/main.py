@@ -1,11 +1,14 @@
 # src/main.py
 
+import asyncio
 import argparse
 import os
 from dotenv import load_dotenv
 
-from src.config import SUBREDDITS, PAIN_KEYWORDS
-from src.scraper.reddit import RedditScraper
+from src.collectors.hackernews import HackerNewsCollector
+from src.collectors.indiehackers import IndieHackersCollector
+from src.collectors.appstore import AppStoreCollector
+from src.collectors.youtube import YouTubeCollector
 from src.analyzer.classifier import PainClassifier
 from src.storage.database import PainDatabase
 
@@ -13,62 +16,74 @@ from src.storage.database import PainDatabase
 load_dotenv()
 
 
-def scrape_and_analyze(
-    subreddits: list = None,
-    keywords: list = None,
-    limit_per_subreddit: int = 50
-):
-    """Main scraping and analysis pipeline."""
-
-    subreddits = subreddits or SUBREDDITS
-    keywords = keywords or PAIN_KEYWORDS
+async def run_collection(sources: list, limit: int):
+    """Run data collection."""
 
     print("=" * 60)
-    print("PAIN POINT SCRAPER")
+    print("PAIN POINT COLLECTOR")
     print("=" * 60)
 
-    # Validate environment variables
-    if not os.getenv("REDDIT_CLIENT_ID") or not os.getenv("REDDIT_CLIENT_SECRET"):
-        print("\n❌ Error: Reddit credentials not found!")
-        print("Please set REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET in .env file")
-        print("See .env.example for reference")
-        return
-
+    # Validate API key
     if not os.getenv("ANTHROPIC_API_KEY"):
-        print("\n❌ Error: Anthropic API key not found!")
-        print("Please set ANTHROPIC_API_KEY in .env file")
+        print("\nError: ANTHROPIC_API_KEY not set in .env file")
         return
 
-    # Step 1: Scrape Reddit
-    print("\n📥 Step 1: Scraping Reddit...")
-    scraper = RedditScraper()
-    posts = scraper.scrape_all_subreddits(
-        subreddits=subreddits,
-        keywords=keywords[:10],  # Limit keywords to avoid too many requests
-        limit_per_subreddit=limit_per_subreddit
-    )
-    print(f"✅ Collected {len(posts)} posts")
+    all_data = []
 
-    if not posts:
-        print("\n⚠️ No posts found. Check your subreddits and keywords.")
+    # Collect data
+    if "hn" in sources or "all" in sources:
+        print("\n Collecting from Hacker News...")
+        collector = HackerNewsCollector()
+        data = await collector.collect(limit=limit)
+        all_data.extend(data)
+        print(f"   Found {len(data)} items")
+
+    if "ih" in sources or "all" in sources:
+        print("\n Collecting from Indie Hackers...")
+        collector = IndieHackersCollector()
+        data = await collector.collect(limit=limit)
+        all_data.extend(data)
+        print(f"   Found {len(data)} items")
+
+    if "appstore" in sources or "all" in sources:
+        print("\n Collecting from App Store...")
+        collector = AppStoreCollector()
+        data = await collector.collect(limit=limit)
+        all_data.extend(data)
+        print(f"   Found {len(data)} items")
+
+    if "youtube" in sources or "all" in sources:
+        print("\n Collecting from YouTube...")
+        try:
+            collector = YouTubeCollector()
+            data = await collector.collect(limit=limit)
+            all_data.extend(data)
+            print(f"   Found {len(data)} items")
+        except ValueError as e:
+            print(f"   Skipped: {e}")
+
+    print(f"\n Total collected: {len(all_data)} items")
+
+    if not all_data:
+        print("\nNo data collected. Check your configuration.")
         return
 
-    # Step 2: Analyze with Claude
-    print("\n🧠 Step 2: Analyzing with Claude...")
+    # Classification
+    print("\n Analyzing with Claude...")
     classifier = PainClassifier()
 
     def progress(current, total):
-        print(f"  Processing {current}/{total}...", end="\r")
+        print(f"   Processing {current}/{total}...", end="\r")
 
-    pains = classifier.classify_batch(posts, progress_callback=progress)
-    print(f"\n✅ Identified {len(pains)} business pains")
+    pains = classifier.classify_batch(all_data, progress_callback=progress)
+    print(f"\n   Identified {len(pains)} business pains")
 
     if not pains:
-        print("\n⚠️ No business pains identified in the collected posts.")
+        print("\nNo business pains identified.")
         return
 
-    # Step 3: Save to database
-    print("\n💾 Step 3: Saving to database...")
+    # Save
+    print("\n Saving to database...")
     db = PainDatabase()
 
     saved = 0
@@ -76,32 +91,52 @@ def scrape_and_analyze(
         if db.insert_pain(pain):
             saved += 1
 
-    print(f"✅ Saved {saved} new pains to database")
+    print(f"   Saved {saved} new pains")
 
-    # Step 4: Summary
-    print("\n📊 Summary by Industry:")
-    for industry in db.get_industries_summary():
-        avg_sev = industry['avg_severity']
+    # Summary
+    summary = db.get_summary()
+
+    print("\n" + "=" * 60)
+    print("SUMMARY")
+    print("=" * 60)
+    print(f"\nTotal pains in database: {summary['total']}")
+
+    print("\nBy Industry:")
+    for item in summary["by_industry"][:10]:
+        avg_sev = item['avg_severity']
         if avg_sev:
-            print(f"  {industry['industry']}: {industry['count']} pains (avg severity: {avg_sev:.1f})")
+            print(f"   {item['industry']}: {item['count']} (avg severity: {avg_sev:.1f})")
         else:
-            print(f"  {industry['industry']}: {industry['count']} pains")
+            print(f"   {item['industry']}: {item['count']}")
 
-    print("\n🔥 Top 5 Pains:")
+    print("\nBy Source:")
+    for item in summary["by_source"]:
+        print(f"   {item['source']}: {item['count']}")
+
+    print("\n Top 5 Pains:")
     for pain in db.get_top_pains(limit=5):
-        print(f"  [{pain['severity']}/10] {pain['pain_title']}")
-        print(f"      → {pain['potential_product_idea']}")
+        print(f"   [{pain['severity']}/10] {pain['pain_title']}")
+        print(f"       Industry: {pain['industry']} | WTP: {pain['willingness_to_pay']}")
+        print(f"       -> {pain['potential_product']}")
 
-    print("\n✅ Done! Run `streamlit run src/dashboard/app.py` to explore results.")
+    print("\n Done! Run `streamlit run src/dashboard/app.py` to explore.")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Collect business pain points")
+    parser.add_argument(
+        "--sources",
+        nargs="+",
+        default=["all"],
+        choices=["all", "hn", "ih", "appstore", "youtube"],
+        help="Sources to collect from"
+    )
+    parser.add_argument("--limit", type=int, default=50, help="Items per source")
+
+    args = parser.parse_args()
+
+    asyncio.run(run_collection(args.sources, args.limit))
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Scrape and analyze business pains")
-    parser.add_argument("--limit", type=int, default=50, help="Posts per subreddit")
-    parser.add_argument("--subreddits", nargs="+", help="Specific subreddits")
-    args = parser.parse_args()
-
-    scrape_and_analyze(
-        subreddits=args.subreddits,
-        limit_per_subreddit=args.limit
-    )
+    main()
