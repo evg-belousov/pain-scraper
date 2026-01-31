@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
-# Prices as of February 2025
+# Prices as of February 2026
 MODEL_PRICES = {
     # GPT-4o
     "gpt-4o": {
