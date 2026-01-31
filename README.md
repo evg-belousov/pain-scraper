@@ -97,7 +97,21 @@ streamlit run src/dashboard/app.py
 Dashboard features:
 - **Pains tab** - Browse and filter collected pain points
 - **Clusters tab** - View clustered opportunities with deep analysis
+- **Duplicates tab** - View duplicate and related pain pairs
 - **Statistics tab** - Track collection runs, LLM costs, and progress
+
+### Smart Deduplication
+
+```bash
+# Find duplicates in existing data
+python3 -m src.dedup --reprocess-all
+
+# Show statistics
+python3 -m src.dedup --stats
+
+# Show top pains with most duplicates
+python3 -m src.dedup --show-duplicates 10
+```
 
 ## Project Structure
 
@@ -116,6 +130,8 @@ pain-scraper/
 │   │   ├── classifier.py        # GPT pain classification
 │   │   ├── clustering.py        # HDBSCAN clustering
 │   │   ├── deep_analysis.py     # Deep opportunity analysis
+│   │   ├── deduplication.py     # Smart deduplication
+│   │   ├── incremental_clustering.py  # Incremental clustering
 │   │   └── prompts.py           # LLM prompts
 │   ├── storage/
 │   │   ├── database.py          # SQLite storage
@@ -128,7 +144,8 @@ pain-scraper/
 │   ├── config.py                # Configuration
 │   ├── main.py                  # Collection entry point
 │   ├── cluster.py               # Clustering entry point
-│   └── analyze.py               # Deep analysis entry point
+│   ├── analyze.py               # Deep analysis entry point
+│   └── dedup.py                 # Deduplication entry point
 ├── data/
 │   └── pains.db                 # SQLite database
 ├── requirements.txt
@@ -150,6 +167,11 @@ pain-scraper/
 - **collection_runs** - Run history with stats
 - **llm_costs** - Token usage and costs per request
 - **daily_stats** - Aggregated daily statistics
+
+### Deduplication Tables
+
+- **pain_similarities** - Similarity scores between pain pairs
+- Pains table extended with: `embedding`, `canonical_id`, `is_canonical`, `duplicate_count`
 
 ## Pain Classification Fields
 

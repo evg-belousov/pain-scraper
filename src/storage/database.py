@@ -182,6 +182,63 @@ class PainDatabase:
                 )
             """)
 
+            # Deduplication tables
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS pain_similarities (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    pain_id_1 INTEGER NOT NULL,
+                    pain_id_2 INTEGER NOT NULL,
+                    similarity REAL NOT NULL,
+                    relation_type TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+                    FOREIGN KEY (pain_id_1) REFERENCES pains(id),
+                    FOREIGN KEY (pain_id_2) REFERENCES pains(id),
+                    UNIQUE(pain_id_1, pain_id_2)
+                )
+            """)
+
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_sim_pain1 ON pain_similarities(pain_id_1)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_sim_pain2 ON pain_similarities(pain_id_2)")
+
+            # Add deduplication columns to pains if not exist
+            try:
+                conn.execute("ALTER TABLE pains ADD COLUMN embedding BLOB")
+            except:
+                pass
+            try:
+                conn.execute("ALTER TABLE pains ADD COLUMN embedding_model TEXT DEFAULT 'text-embedding-3-small'")
+            except:
+                pass
+            try:
+                conn.execute("ALTER TABLE pains ADD COLUMN embedded_at TIMESTAMP")
+            except:
+                pass
+            try:
+                conn.execute("ALTER TABLE pains ADD COLUMN canonical_id INTEGER REFERENCES pains(id)")
+            except:
+                pass
+            try:
+                conn.execute("ALTER TABLE pains ADD COLUMN is_canonical BOOLEAN DEFAULT TRUE")
+            except:
+                pass
+            try:
+                conn.execute("ALTER TABLE pains ADD COLUMN duplicate_count INTEGER DEFAULT 1")
+            except:
+                pass
+
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_pain_canonical ON pains(canonical_id)")
+
+            # Add centroid to clusters if not exist
+            try:
+                conn.execute("ALTER TABLE clusters ADD COLUMN centroid BLOB")
+            except:
+                pass
+            try:
+                conn.execute("ALTER TABLE clusters ADD COLUMN last_updated TIMESTAMP")
+            except:
+                pass
+
             conn.commit()
 
     def insert_pain(self, pain_data: Dict) -> bool:
@@ -684,3 +741,258 @@ class PainDatabase:
         with self._get_connection() as conn:
             row = conn.execute("SELECT COUNT(*) FROM deep_analyses").fetchone()
             return row[0] if row else 0
+
+    # ==================== Deduplication Methods ====================
+
+    def get_pain_by_id(self, pain_id: int) -> Optional[Dict]:
+        """Get a single pain by ID."""
+        with self._get_connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM pains WHERE id = ?",
+                (pain_id,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def get_pains_with_embeddings(self, exclude_id: Optional[int] = None) -> List[Dict]:
+        """Get all pains that have embeddings."""
+        with self._get_connection() as conn:
+            if exclude_id:
+                rows = conn.execute("""
+                    SELECT id, embedding FROM pains
+                    WHERE embedding IS NOT NULL AND id != ?
+                """, (exclude_id,)).fetchall()
+            else:
+                rows = conn.execute("""
+                    SELECT id, embedding FROM pains
+                    WHERE embedding IS NOT NULL
+                """).fetchall()
+            return [dict(row) for row in rows]
+
+    def get_pain_embedding(self, pain_id: int) -> Optional[bytes]:
+        """Get embedding for a pain."""
+        with self._get_connection() as conn:
+            row = conn.execute(
+                "SELECT embedding FROM pains WHERE id = ?",
+                (pain_id,)
+            ).fetchone()
+            return row[0] if row else None
+
+    def update_pain_embedding(
+        self,
+        pain_id: int,
+        embedding: bytes,
+        embedding_model: str
+    ):
+        """Update pain embedding."""
+        with self._get_connection() as conn:
+            conn.execute("""
+                UPDATE pains SET
+                    embedding = ?,
+                    embedding_model = ?,
+                    embedded_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, (embedding, embedding_model, pain_id))
+            conn.commit()
+
+    def update_pain_dedup(
+        self,
+        pain_id: int,
+        canonical_id: Optional[int] = None,
+        is_canonical: Optional[bool] = None
+    ):
+        """Update deduplication fields for a pain."""
+        with self._get_connection() as conn:
+            updates = []
+            params = []
+
+            if canonical_id is not None:
+                updates.append("canonical_id = ?")
+                params.append(canonical_id)
+
+            if is_canonical is not None:
+                updates.append("is_canonical = ?")
+                params.append(is_canonical)
+
+            if updates:
+                params.append(pain_id)
+                conn.execute(f"""
+                    UPDATE pains SET {', '.join(updates)}
+                    WHERE id = ?
+                """, params)
+                conn.commit()
+
+    def increment_duplicate_count(self, pain_id: int):
+        """Increment duplicate count for a pain."""
+        with self._get_connection() as conn:
+            conn.execute("""
+                UPDATE pains SET duplicate_count = duplicate_count + 1
+                WHERE id = ?
+            """, (pain_id,))
+            conn.commit()
+
+    def save_similarity(
+        self,
+        pain_id_1: int,
+        pain_id_2: int,
+        similarity: float,
+        relation_type: str
+    ):
+        """Save similarity between two pains."""
+        # Ensure consistent ordering (smaller ID first)
+        if pain_id_1 > pain_id_2:
+            pain_id_1, pain_id_2 = pain_id_2, pain_id_1
+
+        with self._get_connection() as conn:
+            try:
+                conn.execute("""
+                    INSERT OR REPLACE INTO pain_similarities
+                    (pain_id_1, pain_id_2, similarity, relation_type)
+                    VALUES (?, ?, ?, ?)
+                """, (pain_id_1, pain_id_2, similarity, relation_type))
+                conn.commit()
+            except Exception as e:
+                print(f"Error saving similarity: {e}")
+
+    def get_dedup_stats(self) -> Dict:
+        """Get deduplication statistics."""
+        with self._get_connection() as conn:
+            total = conn.execute("SELECT COUNT(*) FROM pains").fetchone()[0]
+            canonical = conn.execute(
+                "SELECT COUNT(*) FROM pains WHERE is_canonical = TRUE OR is_canonical IS NULL"
+            ).fetchone()[0]
+            duplicates = conn.execute(
+                "SELECT COUNT(*) FROM pains WHERE is_canonical = FALSE"
+            ).fetchone()[0]
+            related = conn.execute(
+                "SELECT COUNT(*) FROM pain_similarities WHERE relation_type = 'related'"
+            ).fetchone()[0]
+
+            return {
+                "total_count": total,
+                "canonical_count": canonical,
+                "duplicate_count": duplicates,
+                "related_count": related,
+                "duplicate_ratio": duplicates / max(total, 1)
+            }
+
+    def get_top_canonical_by_duplicates(self, limit: int = 20) -> List[Dict]:
+        """Get canonical pains with most duplicates."""
+        with self._get_connection() as conn:
+            rows = conn.execute("""
+                SELECT * FROM pains
+                WHERE (is_canonical = TRUE OR is_canonical IS NULL)
+                    AND duplicate_count > 1
+                ORDER BY duplicate_count DESC
+                LIMIT ?
+            """, (limit,)).fetchall()
+            return [dict(row) for row in rows]
+
+    def get_duplicates_of(self, canonical_id: int) -> List[Dict]:
+        """Get all duplicates of a canonical pain."""
+        with self._get_connection() as conn:
+            rows = conn.execute("""
+                SELECT * FROM pains
+                WHERE canonical_id = ?
+                ORDER BY created_at DESC
+            """, (canonical_id,)).fetchall()
+            return [dict(row) for row in rows]
+
+    def get_related_pairs(self, limit: int = 50) -> List[Dict]:
+        """Get pairs of related (but different) pains."""
+        with self._get_connection() as conn:
+            rows = conn.execute("""
+                SELECT
+                    ps.pain_id_1, ps.pain_id_2, ps.similarity,
+                    p1.pain_title as title1, p1.pain_description as desc1,
+                    p2.pain_title as title2, p2.pain_description as desc2
+                FROM pain_similarities ps
+                JOIN pains p1 ON ps.pain_id_1 = p1.id
+                JOIN pains p2 ON ps.pain_id_2 = p2.id
+                WHERE ps.relation_type = 'related'
+                ORDER BY ps.similarity DESC
+                LIMIT ?
+            """, (limit,)).fetchall()
+            return [dict(row) for row in rows]
+
+    # ==================== Incremental Clustering Methods ====================
+
+    def get_clusters_with_centroids(self) -> List[Dict]:
+        """Get all clusters with their centroids."""
+        with self._get_connection() as conn:
+            rows = conn.execute("""
+                SELECT * FROM clusters WHERE centroid IS NOT NULL
+            """).fetchall()
+            return [dict(row) for row in rows]
+
+    def add_pain_to_cluster(self, pain_id: int, cluster_id: int):
+        """Add a pain to a cluster."""
+        with self._get_connection() as conn:
+            try:
+                conn.execute("""
+                    INSERT OR IGNORE INTO pain_clusters (pain_id, cluster_id)
+                    VALUES (?, ?)
+                """, (pain_id, cluster_id))
+
+                # Update cluster size
+                conn.execute("""
+                    UPDATE clusters SET
+                        size = (SELECT COUNT(*) FROM pain_clusters WHERE cluster_id = ?),
+                        last_updated = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                """, (cluster_id, cluster_id))
+
+                conn.commit()
+            except Exception as e:
+                print(f"Error adding pain to cluster: {e}")
+
+    def update_cluster_centroid(self, cluster_id: int, centroid: bytes):
+        """Update cluster centroid."""
+        with self._get_connection() as conn:
+            conn.execute("""
+                UPDATE clusters SET
+                    centroid = ?,
+                    last_updated = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, (centroid, cluster_id))
+            conn.commit()
+
+    def get_unclustered_pains(self) -> List[Dict]:
+        """Get pains that are not in any cluster."""
+        with self._get_connection() as conn:
+            rows = conn.execute("""
+                SELECT p.* FROM pains p
+                LEFT JOIN pain_clusters pc ON p.id = pc.pain_id
+                WHERE pc.cluster_id IS NULL
+                    AND p.embedding IS NOT NULL
+            """).fetchall()
+            return [dict(row) for row in rows]
+
+    def get_clustering_stats(self) -> Dict:
+        """Get clustering statistics."""
+        with self._get_connection() as conn:
+            total = conn.execute("SELECT COUNT(*) FROM pains").fetchone()[0]
+            clustered = conn.execute(
+                "SELECT COUNT(DISTINCT pain_id) FROM pain_clusters"
+            ).fetchone()[0]
+            unclustered = total - clustered
+
+            # Days since last full clustering
+            last_cluster = conn.execute(
+                "SELECT MAX(created_at) FROM clusters"
+            ).fetchone()[0]
+
+            days_since = 999
+            if last_cluster:
+                from datetime import datetime
+                try:
+                    last_dt = datetime.fromisoformat(last_cluster)
+                    days_since = (datetime.now() - last_dt).days
+                except:
+                    pass
+
+            return {
+                "total": total,
+                "clustered": clustered,
+                "unclustered": unclustered,
+                "days_since_full_clustering": days_since
+            }

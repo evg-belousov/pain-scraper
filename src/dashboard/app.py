@@ -312,6 +312,68 @@ def show_stats_tab(db):
                         st.write(f"  - {err[:100]}")
 
 
+def show_duplicates_tab(db):
+    """Show duplicates and relationships tab."""
+    st.header("Duplicates & Relationships")
+
+    # Statistics
+    stats = db.get_dedup_stats()
+
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Unique Pains", stats["canonical_count"])
+    col2.metric("Total Records", stats["total_count"])
+    col3.metric("Duplicates", stats["duplicate_count"])
+    col4.metric("Duplicate Ratio", f"{stats['duplicate_ratio']:.1%}")
+
+    st.divider()
+
+    # Top pains with most duplicates
+    st.subheader("Most Frequent Pains")
+    st.caption("Pains mentioned multiple times across sources")
+
+    top_canonical = db.get_top_canonical_by_duplicates(limit=20)
+
+    if not top_canonical:
+        st.info("No duplicates found yet. Run `python3 -m src.dedup --reprocess-all` to find duplicates.")
+    else:
+        for pain in top_canonical:
+            with st.expander(f"[{pain.get('duplicate_count', 1)}x] {pain.get('pain_title', 'Unknown')}"):
+                st.write(pain.get("pain_description", "")[:300])
+                st.write(f"**Industry:** {pain.get('industry', 'Unknown')}")
+                st.write(f"**Severity:** {pain.get('severity', 0)}/10")
+
+                # Show duplicates
+                duplicates = db.get_duplicates_of(pain["id"])
+                if duplicates:
+                    st.write("**Duplicate mentions:**")
+                    for dup in duplicates[:5]:
+                        st.write(f"- [{dup.get('source', 'unknown')}] {dup.get('pain_title', '')[:50]}...")
+                    if len(duplicates) > 5:
+                        st.write(f"... and {len(duplicates) - 5} more")
+
+    st.divider()
+
+    # Related pairs
+    st.subheader("Related Pains")
+    st.caption("Similar but different problems - potential niches")
+
+    related_pairs = db.get_related_pairs(limit=30)
+
+    if not related_pairs:
+        st.info("No related pain pairs found yet.")
+    else:
+        for pair in related_pairs:
+            col1, col2 = st.columns(2)
+            with col1:
+                st.write(f"**{pair.get('title1', '')}**")
+                st.write(pair.get("desc1", "")[:150] + "...")
+            with col2:
+                st.write(f"**{pair.get('title2', '')}**")
+                st.write(pair.get("desc2", "")[:150] + "...")
+            st.write(f"Similarity: {pair.get('similarity', 0):.1%}")
+            st.divider()
+
+
 def show_clusters_tab(db):
     """Show clusters exploration tab."""
 
@@ -419,7 +481,7 @@ def main():
     st.markdown("---")
 
     # Tabs
-    tab1, tab2, tab3 = st.tabs(["Pains", "Clusters", "Statistics"])
+    tab1, tab2, tab3, tab4 = st.tabs(["Pains", "Clusters", "Duplicates", "Statistics"])
 
     with tab1:
         show_pains_tab(db, summary)
@@ -428,6 +490,9 @@ def main():
         show_clusters_tab(db)
 
     with tab3:
+        show_duplicates_tab(db)
+
+    with tab4:
         show_stats_tab(db)
 
 
