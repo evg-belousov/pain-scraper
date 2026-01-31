@@ -114,6 +114,78 @@ def show_pains_tab(db, summary):
                         st.markdown(f"**Tags:** {', '.join(tags[:5])}")
 
 
+def show_deep_analysis(analysis: dict):
+    """Show deep analysis details."""
+    verdict = analysis.get("verdict", "maybe")
+    verdict_colors = {"go": "green", "maybe": "orange", "no_go": "red"}
+    verdict_emoji = {"go": "✅", "maybe": "🤔", "no_go": "❌"}
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Attractiveness", f"{analysis.get('attractiveness_score', 0)}/10")
+    col2.metric("Verdict", f"{verdict_emoji.get(verdict, '?')} {verdict.upper()}")
+    col3.metric("Market Size", analysis.get("market_size", "medium").title())
+
+    st.markdown(f"**{analysis.get('main_argument', '')}**")
+
+    # MVP
+    st.markdown("##### MVP Concept")
+    st.write(analysis.get("mvp_description", ""))
+
+    try:
+        features = json.loads(analysis.get("core_features", "[]"))
+    except:
+        features = []
+    if features:
+        st.markdown("**Core Features:**")
+        for f in features:
+            st.markdown(f"- {f}")
+
+    # Target & Acquisition
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("##### Target Audience")
+        st.markdown(f"**Role:** {analysis.get('target_role', '')}")
+        st.markdown(f"**Company Size:** {analysis.get('target_company_size', '')}")
+        try:
+            industries = json.loads(analysis.get("target_industries", "[]"))
+        except:
+            industries = []
+        if industries:
+            st.markdown(f"**Industries:** {', '.join(industries)}")
+
+    with col2:
+        st.markdown("##### Customer Acquisition")
+        st.markdown(f"**Best Channel:** {analysis.get('best_channel', '')}")
+        st.markdown(f"**Price Range:** {analysis.get('price_range', '')}")
+        try:
+            channels = json.loads(analysis.get("where_to_find_customers", "[]"))
+        except:
+            channels = []
+        if channels:
+            st.markdown(f"**Where to find:** {', '.join(channels[:3])}")
+
+    # Competitors
+    try:
+        competitors = json.loads(analysis.get("competitors", "[]"))
+    except:
+        competitors = []
+    if competitors:
+        with st.expander("Competitors"):
+            for comp in competitors:
+                st.markdown(f"**{comp.get('name', 'Unknown')}** ({comp.get('price_range', '?')})")
+                st.markdown(f"  Weakness: {comp.get('weakness', '')}")
+
+    # Risks
+    try:
+        risks = json.loads(analysis.get("risks", "[]"))
+    except:
+        risks = []
+    if risks:
+        with st.expander("Risks"):
+            for risk in risks:
+                st.markdown(f"⚠️ {risk}")
+
+
 def show_clusters_tab(db):
     """Show clusters exploration tab."""
 
@@ -191,6 +263,15 @@ def show_clusters_tab(db):
 
                 if industries:
                     st.markdown(f"**Industries:** {', '.join(industries)}")
+
+            # Deep Analysis section
+            analysis = db.get_deep_analysis(cluster_id)
+            if analysis:
+                st.markdown("---")
+                show_deep_analysis(analysis)
+            else:
+                st.markdown("---")
+                st.info("Deep analysis not available. Run `python3 -m src.analyze --cluster-id " + str(cluster_id) + "` to generate.")
 
 
 def main():

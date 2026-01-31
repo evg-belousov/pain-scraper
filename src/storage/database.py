@@ -91,6 +91,43 @@ class PainDatabase:
                 )
             """)
 
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS deep_analyses (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    cluster_id INTEGER UNIQUE,
+
+                    competitors TEXT,
+                    why_still_painful TEXT,
+
+                    target_role TEXT,
+                    target_company_size TEXT,
+                    target_industries TEXT,
+                    market_size TEXT,
+
+                    root_cause TEXT,
+                    solvable_with_software BOOLEAN,
+
+                    mvp_description TEXT,
+                    core_features TEXT,
+                    out_of_scope TEXT,
+
+                    where_to_find_customers TEXT,
+                    best_channel TEXT,
+                    price_range TEXT,
+
+                    risks TEXT,
+
+                    attractiveness_score INTEGER,
+                    verdict TEXT,
+                    main_argument TEXT,
+
+                    model_used TEXT,
+                    analyzed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+                    FOREIGN KEY (cluster_id) REFERENCES clusters(id)
+                )
+            """)
+
             conn.commit()
 
     def insert_pain(self, pain_data: Dict) -> bool:
@@ -263,4 +300,74 @@ class PainDatabase:
                 WHERE pc.cluster_id = ?
                 ORDER BY p.severity DESC
             """, (cluster_id,)).fetchall()
+            return [dict(row) for row in rows]
+
+    def save_deep_analysis(self, analysis) -> bool:
+        """Save deep analysis to database."""
+        with self._get_connection() as conn:
+            try:
+                conn.execute("""
+                    INSERT OR REPLACE INTO deep_analyses (
+                        cluster_id, competitors, why_still_painful,
+                        target_role, target_company_size, target_industries, market_size,
+                        root_cause, solvable_with_software,
+                        mvp_description, core_features, out_of_scope,
+                        where_to_find_customers, best_channel, price_range,
+                        risks, attractiveness_score, verdict, main_argument,
+                        model_used, analyzed_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    analysis.cluster_id,
+                    json.dumps(analysis.competitors),
+                    analysis.why_still_painful,
+                    analysis.target_role,
+                    analysis.target_company_size,
+                    json.dumps(analysis.target_industries),
+                    analysis.market_size,
+                    analysis.root_cause,
+                    analysis.solvable_with_software,
+                    analysis.mvp_description,
+                    json.dumps(analysis.core_features),
+                    json.dumps(analysis.out_of_scope),
+                    json.dumps(analysis.where_to_find_customers),
+                    analysis.best_channel,
+                    analysis.price_range,
+                    json.dumps(analysis.risks),
+                    analysis.attractiveness_score,
+                    analysis.verdict,
+                    analysis.main_argument,
+                    analysis.model_used,
+                    analysis.analyzed_at,
+                ))
+                conn.commit()
+                return True
+            except Exception as e:
+                print(f"Error saving deep analysis: {e}")
+                return False
+
+    def get_deep_analysis(self, cluster_id: int) -> Optional[Dict]:
+        """Get deep analysis for a cluster."""
+        with self._get_connection() as conn:
+            row = conn.execute("""
+                SELECT * FROM deep_analyses WHERE cluster_id = ?
+            """, (cluster_id,)).fetchone()
+            return dict(row) if row else None
+
+    def get_analyzed_cluster_ids(self) -> List[int]:
+        """Get list of cluster IDs that have been analyzed."""
+        with self._get_connection() as conn:
+            rows = conn.execute("""
+                SELECT cluster_id FROM deep_analyses
+            """).fetchall()
+            return [row[0] for row in rows]
+
+    def get_all_deep_analyses(self, order_by: str = "attractiveness_score") -> List[Dict]:
+        """Get all deep analyses."""
+        with self._get_connection() as conn:
+            rows = conn.execute(f"""
+                SELECT da.*, c.name as cluster_name, c.size as cluster_size
+                FROM deep_analyses da
+                JOIN clusters c ON da.cluster_id = c.id
+                ORDER BY da.{order_by} DESC
+            """).fetchall()
             return [dict(row) for row in rows]
