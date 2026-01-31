@@ -65,6 +65,32 @@ class PainDatabase:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_industry ON pains(industry)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_severity ON pains(severity DESC)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_source ON pains(source)")
+
+            # Cluster tables
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS clusters (
+                    id INTEGER PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    size INTEGER NOT NULL,
+                    avg_severity REAL,
+                    avg_wtp TEXT,
+                    top_industries TEXT,
+                    sample_pains TEXT,
+                    opportunity_score REAL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS pain_clusters (
+                    pain_id INTEGER,
+                    cluster_id INTEGER,
+                    FOREIGN KEY (pain_id) REFERENCES pains(id),
+                    FOREIGN KEY (cluster_id) REFERENCES clusters(id),
+                    PRIMARY KEY (pain_id, cluster_id)
+                )
+            """)
+
             conn.commit()
 
     def insert_pain(self, pain_data: Dict) -> bool:
@@ -167,4 +193,74 @@ class PainDatabase:
                 LIMIT ?
             """, (f"%{query}%", f"%{query}%", limit)).fetchall()
 
+            return [dict(row) for row in rows]
+
+    def get_all_pains(self, limit: int = 10000) -> List[Dict]:
+        """Get all pains from database."""
+        with self._get_connection() as conn:
+            rows = conn.execute("""
+                SELECT * FROM pains
+                ORDER BY created_at DESC
+                LIMIT ?
+            """, (limit,)).fetchall()
+            return [dict(row) for row in rows]
+
+    def save_clusters(self, clusters) -> bool:
+        """Save clusters to database."""
+        with self._get_connection() as conn:
+            try:
+                # Clear existing clusters
+                conn.execute("DELETE FROM pain_clusters")
+                conn.execute("DELETE FROM clusters")
+
+                for cluster in clusters:
+                    # Insert cluster
+                    conn.execute("""
+                        INSERT INTO clusters (
+                            id, name, size, avg_severity, avg_wtp,
+                            top_industries, sample_pains, opportunity_score
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        cluster.cluster_id,
+                        cluster.name,
+                        cluster.size,
+                        cluster.avg_severity,
+                        cluster.avg_wtp,
+                        json.dumps(cluster.top_industries),
+                        json.dumps(cluster.sample_pains),
+                        cluster.opportunity_score,
+                    ))
+
+                    # Insert pain-cluster mappings
+                    for pain_id in cluster.pain_ids:
+                        conn.execute("""
+                            INSERT INTO pain_clusters (pain_id, cluster_id)
+                            VALUES (?, ?)
+                        """, (pain_id, cluster.cluster_id))
+
+                conn.commit()
+                return True
+            except Exception as e:
+                print(f"Error saving clusters: {e}")
+                return False
+
+    def get_clusters(self, order_by: str = "opportunity_score", limit: int = 100) -> List[Dict]:
+        """Get all clusters."""
+        with self._get_connection() as conn:
+            rows = conn.execute(f"""
+                SELECT * FROM clusters
+                ORDER BY {order_by} DESC
+                LIMIT ?
+            """, (limit,)).fetchall()
+            return [dict(row) for row in rows]
+
+    def get_pains_by_cluster(self, cluster_id: int) -> List[Dict]:
+        """Get all pains in a cluster."""
+        with self._get_connection() as conn:
+            rows = conn.execute("""
+                SELECT p.* FROM pains p
+                JOIN pain_clusters pc ON p.id = pc.pain_id
+                WHERE pc.cluster_id = ?
+                ORDER BY p.severity DESC
+            """, (cluster_id,)).fetchall()
             return [dict(row) for row in rows]
