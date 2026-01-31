@@ -128,6 +128,60 @@ class PainDatabase:
                 )
             """)
 
+            # Tracking tables
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS collection_runs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    finished_at TIMESTAMP,
+                    status TEXT DEFAULT 'running',
+
+                    source_stats TEXT,
+                    total_collected INTEGER DEFAULT 0,
+                    total_new INTEGER DEFAULT 0,
+                    total_analyzed INTEGER DEFAULT 0,
+
+                    errors TEXT
+                )
+            """)
+
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS llm_costs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+                    operation TEXT,
+                    model TEXT,
+
+                    prompt_tokens INTEGER,
+                    completion_tokens INTEGER,
+                    total_tokens INTEGER,
+
+                    cost_usd REAL,
+
+                    run_id INTEGER,
+                    cluster_id INTEGER,
+                    pain_id INTEGER,
+
+                    FOREIGN KEY (run_id) REFERENCES collection_runs(id)
+                )
+            """)
+
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS daily_stats (
+                    date TEXT PRIMARY KEY,
+
+                    pains_collected INTEGER DEFAULT 0,
+                    pains_analyzed INTEGER DEFAULT 0,
+                    clusters_created INTEGER DEFAULT 0,
+                    deep_analyses INTEGER DEFAULT 0,
+
+                    total_cost_usd REAL DEFAULT 0,
+
+                    cost_by_model TEXT
+                )
+            """)
+
             conn.commit()
 
     def insert_pain(self, pain_data: Dict) -> bool:
@@ -371,3 +425,262 @@ class PainDatabase:
                 ORDER BY da.{order_by} DESC
             """).fetchall()
             return [dict(row) for row in rows]
+
+    # ==================== Tracking Methods ====================
+
+    def create_collection_run(self) -> int:
+        """Create a new collection run and return its ID."""
+        with self._get_connection() as conn:
+            cursor = conn.execute("""
+                INSERT INTO collection_runs (status) VALUES ('running')
+            """)
+            conn.commit()
+            return cursor.lastrowid
+
+    def finish_collection_run(
+        self,
+        run_id: int,
+        status: str,
+        source_stats: Dict[str, int],
+        total_collected: int,
+        total_new: int,
+        total_analyzed: int,
+        errors: List[str]
+    ):
+        """Finish a collection run with results."""
+        with self._get_connection() as conn:
+            conn.execute("""
+                UPDATE collection_runs SET
+                    finished_at = CURRENT_TIMESTAMP,
+                    status = ?,
+                    source_stats = ?,
+                    total_collected = ?,
+                    total_new = ?,
+                    total_analyzed = ?,
+                    errors = ?
+                WHERE id = ?
+            """, (
+                status,
+                json.dumps(source_stats),
+                total_collected,
+                total_new,
+                total_analyzed,
+                json.dumps(errors),
+                run_id
+            ))
+            conn.commit()
+
+    def get_recent_runs(self, limit: int = 10) -> List[Dict]:
+        """Get recent collection runs."""
+        with self._get_connection() as conn:
+            rows = conn.execute("""
+                SELECT r.*,
+                    COALESCE((SELECT SUM(cost_usd) FROM llm_costs WHERE run_id = r.id), 0) as cost
+                FROM collection_runs r
+                ORDER BY r.started_at DESC
+                LIMIT ?
+            """, (limit,)).fetchall()
+
+            results = []
+            for row in rows:
+                d = dict(row)
+                # Parse JSON fields
+                if d.get("source_stats"):
+                    try:
+                        d["source_stats"] = json.loads(d["source_stats"])
+                    except:
+                        d["source_stats"] = {}
+                if d.get("errors"):
+                    try:
+                        d["errors"] = json.loads(d["errors"])
+                    except:
+                        d["errors"] = []
+                results.append(d)
+
+            return results
+
+    def save_llm_usage(self, usage) -> bool:
+        """Save LLM usage record."""
+        with self._get_connection() as conn:
+            try:
+                conn.execute("""
+                    INSERT INTO llm_costs (
+                        operation, model,
+                        prompt_tokens, completion_tokens, total_tokens,
+                        cost_usd, run_id, cluster_id, pain_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    usage.operation,
+                    usage.model,
+                    usage.prompt_tokens,
+                    usage.completion_tokens,
+                    usage.prompt_tokens + usage.completion_tokens,
+                    usage.cost_usd,
+                    usage.run_id,
+                    usage.cluster_id,
+                    usage.pain_id
+                ))
+                conn.commit()
+                return True
+            except Exception as e:
+                print(f"Error saving LLM usage: {e}")
+                return False
+
+    def increment_daily_cost(self, date: str, cost: float, model: str):
+        """Increment daily cost statistics."""
+        with self._get_connection() as conn:
+            # Get existing record
+            row = conn.execute(
+                "SELECT cost_by_model, total_cost_usd FROM daily_stats WHERE date = ?",
+                (date,)
+            ).fetchone()
+
+            if row:
+                # Update existing
+                try:
+                    cost_by_model = json.loads(row[0]) if row[0] else {}
+                except:
+                    cost_by_model = {}
+
+                cost_by_model[model] = cost_by_model.get(model, 0) + cost
+                total_cost = row[1] + cost
+
+                conn.execute("""
+                    UPDATE daily_stats SET
+                        total_cost_usd = ?,
+                        cost_by_model = ?
+                    WHERE date = ?
+                """, (total_cost, json.dumps(cost_by_model), date))
+            else:
+                # Create new
+                cost_by_model = {model: cost}
+                conn.execute("""
+                    INSERT INTO daily_stats (date, total_cost_usd, cost_by_model)
+                    VALUES (?, ?, ?)
+                """, (date, cost, json.dumps(cost_by_model)))
+
+            conn.commit()
+
+    def increment_daily_stats(self, date: str, field: str, count: int = 1):
+        """Increment a daily stats counter."""
+        valid_fields = ["pains_collected", "pains_analyzed", "clusters_created", "deep_analyses"]
+        if field not in valid_fields:
+            return
+
+        with self._get_connection() as conn:
+            row = conn.execute(
+                "SELECT id FROM daily_stats WHERE date = ?", (date,)
+            ).fetchone()
+
+            if row:
+                conn.execute(f"""
+                    UPDATE daily_stats SET {field} = {field} + ?
+                    WHERE date = ?
+                """, (count, date))
+            else:
+                conn.execute(f"""
+                    INSERT INTO daily_stats (date, {field})
+                    VALUES (?, ?)
+                """, (date, count))
+
+            conn.commit()
+
+    def get_daily_cost(self, date: str) -> float:
+        """Get total cost for a specific date."""
+        with self._get_connection() as conn:
+            row = conn.execute(
+                "SELECT total_cost_usd FROM daily_stats WHERE date = ?",
+                (date,)
+            ).fetchone()
+            return row[0] if row else 0.0
+
+    def get_cost_since(self, start_date: str) -> float:
+        """Get total cost since a date."""
+        with self._get_connection() as conn:
+            row = conn.execute(
+                "SELECT SUM(total_cost_usd) FROM daily_stats WHERE date >= ?",
+                (start_date,)
+            ).fetchone()
+            return row[0] if row and row[0] else 0.0
+
+    def get_total_cost_by_run(self, run_id: int) -> float:
+        """Get total cost for a run."""
+        with self._get_connection() as conn:
+            row = conn.execute(
+                "SELECT SUM(cost_usd) FROM llm_costs WHERE run_id = ?",
+                (run_id,)
+            ).fetchone()
+            return row[0] if row and row[0] else 0.0
+
+    def get_daily_costs(self, days: int = 30) -> List[Dict]:
+        """Get daily costs for the last N days."""
+        with self._get_connection() as conn:
+            rows = conn.execute("""
+                SELECT date, total_cost_usd as cost, cost_by_model
+                FROM daily_stats
+                ORDER BY date DESC
+                LIMIT ?
+            """, (days,)).fetchall()
+
+            results = []
+            for row in rows:
+                d = dict(row)
+                if d.get("cost_by_model"):
+                    try:
+                        d["cost_by_model"] = json.loads(d["cost_by_model"])
+                    except:
+                        d["cost_by_model"] = {}
+                results.append(d)
+
+            return list(reversed(results))
+
+    def get_costs_by_operation(self) -> Dict[str, float]:
+        """Get total costs grouped by operation."""
+        with self._get_connection() as conn:
+            rows = conn.execute("""
+                SELECT operation, SUM(cost_usd) as total
+                FROM llm_costs
+                GROUP BY operation
+                ORDER BY total DESC
+            """).fetchall()
+            return {row[0]: row[1] for row in rows}
+
+    def get_costs_by_model(self) -> Dict[str, float]:
+        """Get total costs grouped by model."""
+        with self._get_connection() as conn:
+            rows = conn.execute("""
+                SELECT model, SUM(cost_usd) as total
+                FROM llm_costs
+                GROUP BY model
+                ORDER BY total DESC
+            """).fetchall()
+            return {row[0]: row[1] for row in rows}
+
+    def get_pain_counts_by_source(self) -> Dict[str, int]:
+        """Get pain counts grouped by source."""
+        with self._get_connection() as conn:
+            rows = conn.execute("""
+                SELECT source, COUNT(*) as count
+                FROM pains
+                GROUP BY source
+                ORDER BY count DESC
+            """).fetchall()
+            return {row[0]: row[1] for row in rows}
+
+    def count_pains(self) -> int:
+        """Get total pain count."""
+        with self._get_connection() as conn:
+            row = conn.execute("SELECT COUNT(*) FROM pains").fetchone()
+            return row[0] if row else 0
+
+    def count_clusters(self) -> int:
+        """Get total cluster count."""
+        with self._get_connection() as conn:
+            row = conn.execute("SELECT COUNT(*) FROM clusters").fetchone()
+            return row[0] if row else 0
+
+    def count_deep_analyses(self) -> int:
+        """Get total deep analyses count."""
+        with self._get_connection() as conn:
+            row = conn.execute("SELECT COUNT(*) FROM deep_analyses").fetchone()
+            return row[0] if row else 0

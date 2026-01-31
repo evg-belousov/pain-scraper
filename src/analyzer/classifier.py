@@ -7,12 +7,14 @@ from typing import Optional, Dict, List, Callable
 
 from src.collectors.base import RawPainData
 from src.analyzer.prompts import PAIN_CLASSIFICATION_PROMPT
+from src.tracking.costs import CostTracker
 
 
 class PainClassifier:
-    def __init__(self):
+    def __init__(self, cost_tracker: Optional[CostTracker] = None):
         self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         self.model = "gpt-4o-mini"  # Fast and cheap, use "gpt-4o" for better quality
+        self.cost_tracker = cost_tracker
 
     def classify(self, data: RawPainData) -> Optional[Dict]:
         """Classify single item."""
@@ -29,6 +31,15 @@ class PainClassifier:
                 max_tokens=1500,
                 messages=[{"role": "user", "content": prompt}]
             )
+
+            # Track cost
+            if self.cost_tracker and response.usage:
+                self.cost_tracker.track(
+                    operation="classify",
+                    model=self.model,
+                    prompt_tokens=response.usage.prompt_tokens,
+                    completion_tokens=response.usage.completion_tokens
+                )
 
             result_text = response.choices[0].message.content.strip()
 

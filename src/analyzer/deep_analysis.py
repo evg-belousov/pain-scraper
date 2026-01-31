@@ -9,6 +9,7 @@ from enum import Enum
 from openai import OpenAI
 
 from src.storage.database import PainDatabase
+from src.tracking.costs import CostTracker
 
 
 class Verdict(Enum):
@@ -119,6 +120,7 @@ class DeepAnalyzer:
     def __init__(self, db_path: str = "data/pains.db"):
         self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         self.db = PainDatabase(db_path)
+        self.cost_tracker = CostTracker(self.db)
         self.model = "gpt-4o"  # Need smart model for deep analysis
 
     def analyze_cluster(self, cluster_id: int) -> Optional[DeepAnalysis]:
@@ -161,6 +163,16 @@ class DeepAnalyzer:
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=2000
             )
+
+            # Track LLM cost
+            if response.usage:
+                self.cost_tracker.track(
+                    operation="deep_analysis",
+                    model=self.model,
+                    prompt_tokens=response.usage.prompt_tokens,
+                    completion_tokens=response.usage.completion_tokens,
+                    cluster_id=cluster_id
+                )
 
             response_text = response.choices[0].message.content.strip()
 

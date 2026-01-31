@@ -10,6 +10,7 @@ import hdbscan
 from sklearn.preprocessing import StandardScaler
 
 from src.storage.database import PainDatabase
+from src.tracking.costs import CostTracker
 
 
 @dataclass
@@ -32,6 +33,7 @@ class PainClusterer:
         self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         self.embedding_model = "text-embedding-3-small"
         self.db = PainDatabase(db_path)
+        self.cost_tracker = CostTracker(self.db)
 
     def get_embeddings(self, texts: List[str]) -> List[List[float]]:
         """
@@ -49,6 +51,16 @@ class PainClusterer:
                 model=self.embedding_model,
                 input=batch
             )
+
+            # Track embedding cost
+            if response.usage:
+                self.cost_tracker.track(
+                    operation="embedding",
+                    model=self.embedding_model,
+                    prompt_tokens=response.usage.total_tokens,
+                    completion_tokens=0
+                )
+
             batch_embeddings = [item.embedding for item in response.data]
             all_embeddings.extend(batch_embeddings)
 
@@ -85,7 +97,7 @@ class PainClusterer:
         labels = clusterer.fit_predict(scaled)
         return labels
 
-    def generate_cluster_name(self, pains_in_cluster: List[str]) -> str:
+    def generate_cluster_name(self, pains_in_cluster: List[str], cluster_id: int = None) -> str:
         """
         Generate human-readable cluster name.
         Takes up to 5 examples and asks LLM to name the theme.
@@ -114,6 +126,16 @@ Examples of good names:
             }],
             max_tokens=50
         )
+
+        # Track cost
+        if response.usage:
+            self.cost_tracker.track(
+                operation="cluster_name",
+                model="gpt-4o-mini",
+                prompt_tokens=response.usage.prompt_tokens,
+                completion_tokens=response.usage.completion_tokens,
+                cluster_id=cluster_id
+            )
 
         return response.choices[0].message.content.strip().strip('"')
 
@@ -161,7 +183,8 @@ Examples of good names:
 
             print(f"   Naming cluster {cluster_id} ({len(cluster_pains)} pains)...")
             name = self.generate_cluster_name(
-                [p.get("pain_description", p.get("pain_title", "")) for p in cluster_pains]
+                [p.get("pain_description", p.get("pain_title", "")) for p in cluster_pains],
+                cluster_id=cluster_id
             )
 
             cluster = Cluster(

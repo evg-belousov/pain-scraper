@@ -5,11 +5,13 @@ import pandas as pd
 import json
 import sys
 import os
+from datetime import datetime
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 from src.storage.database import PainDatabase
+from src.tracking.costs import CostTracker
 
 
 def show_pains_tab(db, summary):
@@ -186,6 +188,130 @@ def show_deep_analysis(analysis: dict):
                 st.markdown(f"⚠️ {risk}")
 
 
+def show_stats_tab(db):
+    """Show statistics tab."""
+    st.header("Statistics")
+
+    cost_tracker = CostTracker(db)
+
+    # Main metrics
+    col1, col2, col3, col4 = st.columns(4)
+
+    total_pains = db.count_pains()
+    total_clusters = db.count_clusters()
+    total_analyzed = db.count_deep_analyses()
+    month_cost = cost_tracker.get_month_cost()
+
+    col1.metric("Total Pains", total_pains)
+    col2.metric("Clusters", total_clusters)
+    col3.metric("Deep Analyses", total_analyzed)
+    col4.metric("Month Cost", f"${month_cost:.2f}")
+
+    st.divider()
+
+    # By source
+    st.subheader("By Source")
+    source_stats = db.get_pain_counts_by_source()
+
+    if source_stats:
+        col1, col2 = st.columns(2)
+
+        with col1:
+            df_sources = pd.DataFrame([
+                {"Source": k, "Count": v}
+                for k, v in source_stats.items()
+            ])
+            st.dataframe(df_sources, hide_index=True)
+
+        with col2:
+            import plotly.express as px
+            fig = px.pie(
+                values=list(source_stats.values()),
+                names=list(source_stats.keys()),
+                title="Distribution by Source"
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+    st.divider()
+
+    # LLM Costs
+    st.subheader("LLM Costs")
+
+    daily_costs = db.get_daily_costs(days=30)
+
+    if daily_costs:
+        import plotly.express as px
+        fig = px.bar(
+            x=[d["date"] for d in daily_costs],
+            y=[d["cost"] for d in daily_costs],
+            title="Daily Costs (Last 30 Days)"
+        )
+        fig.update_layout(xaxis_title="Date", yaxis_title="USD")
+        st.plotly_chart(fig, use_container_width=True)
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.subheader("By Operation")
+        op_costs = db.get_costs_by_operation()
+        if op_costs:
+            for op, cost in op_costs.items():
+                st.write(f"- {op}: ${cost:.4f}")
+        else:
+            st.info("No LLM usage recorded yet")
+
+    with col2:
+        st.subheader("By Model")
+        model_costs = db.get_costs_by_model()
+        if model_costs:
+            for model, cost in model_costs.items():
+                st.write(f"- {model}: ${cost:.4f}")
+        else:
+            st.info("No LLM usage recorded yet")
+
+    st.divider()
+
+    # Run history
+    st.subheader("Run History")
+
+    runs = db.get_recent_runs(limit=10)
+
+    if not runs:
+        st.info("No collection runs recorded yet")
+    else:
+        for run in runs:
+            status_emoji = {"completed": "✅", "failed": "❌", "running": "🔄"}
+            status = run.get("status", "unknown")
+
+            started = run.get("started_at", "")
+            if started:
+                try:
+                    started = datetime.fromisoformat(started).strftime("%Y-%m-%d %H:%M")
+                except:
+                    pass
+
+            with st.expander(
+                f"{status_emoji.get(status, '?')} "
+                f"Run #{run.get('id')} — {started}"
+            ):
+                col1, col2, col3 = st.columns(3)
+                col1.metric("Collected", run.get("total_collected", 0))
+                col2.metric("New", run.get("total_new", 0))
+                col3.metric("Cost", f"${run.get('cost', 0):.4f}")
+
+                source_stats = run.get("source_stats", {})
+                if source_stats:
+                    st.write("**By source:**")
+                    for source, count in source_stats.items():
+                        st.write(f"  - {source}: {count}")
+
+                errors = run.get("errors", [])
+                if errors:
+                    st.warning(f"Errors: {len(errors)}")
+                    for err in errors[:3]:
+                        st.write(f"  - {err[:100]}")
+
+
 def show_clusters_tab(db):
     """Show clusters exploration tab."""
 
@@ -293,13 +419,16 @@ def main():
     st.markdown("---")
 
     # Tabs
-    tab1, tab2 = st.tabs(["Pains", "Clusters"])
+    tab1, tab2, tab3 = st.tabs(["Pains", "Clusters", "Statistics"])
 
     with tab1:
         show_pains_tab(db, summary)
 
     with tab2:
         show_clusters_tab(db)
+
+    with tab3:
+        show_stats_tab(db)
 
 
 if __name__ == "__main__":
