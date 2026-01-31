@@ -10,6 +10,7 @@ from src.collectors.indiehackers import IndieHackersCollector
 from src.collectors.appstore import AppStoreCollector
 from src.collectors.youtube import YouTubeCollector
 from src.collectors.reddit_pullpush import RedditPullpushCollector
+from src.collectors.stackexchange import StackExchangeCollector
 from src.analyzer.classifier import PainClassifier
 from src.storage.database import PainDatabase
 
@@ -66,6 +67,13 @@ async def run_collection(sources: list, limit: int):
     if "reddit" in sources or "all" in sources:
         print("\n Collecting from Reddit (Pullpush)...")
         collector = RedditPullpushCollector()
+        data = await collector.collect(limit=limit)
+        all_data.extend(data)
+        print(f"   Found {len(data)} items")
+
+    if "stackexchange" in sources or "se" in sources or "all" in sources:
+        print("\n Collecting from Stack Exchange...")
+        collector = StackExchangeCollector()
         data = await collector.collect(limit=limit)
         all_data.extend(data)
         print(f"   Found {len(data)} items")
@@ -136,7 +144,7 @@ def main():
         "--sources",
         nargs="+",
         default=["all"],
-        choices=["all", "hn", "ih", "appstore", "youtube", "reddit"],
+        choices=["all", "hn", "ih", "appstore", "youtube", "reddit", "stackexchange", "se"],
         help="Sources to collect from"
     )
     parser.add_argument("--limit", type=int, default=50, help="Items per source")

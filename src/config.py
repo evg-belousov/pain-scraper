@@ -103,8 +103,39 @@ REDDIT_PAIN_KEYWORDS = [
     "broken",
 ]
 
+# Stack Exchange sites and tags
+SE_SITES = [
+    {
+        "name": "softwarerecs",
+        "tags": ["crm", "project-management", "accounting", "invoicing", "scheduling"],
+    },
+    {
+        "name": "webapps",
+        "tags": ["google-sheets", "slack", "trello", "notion", "asana"],
+    },
+    {
+        "name": "superuser",
+        "tags": ["backup", "automation", "productivity"],
+    },
+    {
+        "name": "startups",
+        "tags": [],  # No specific tags, get top questions
+    },
+]
+
+SE_TAGS = [
+    "crm",
+    "project-management",
+    "accounting",
+    "invoicing",
+    "scheduling",
+    "automation",
+    "productivity",
+]
+
 # Minimum thresholds
 MIN_HN_SCORE = 10
 MIN_REVIEW_LENGTH = 100
 MIN_YOUTUBE_LIKES = 50
 MIN_REDDIT_SCORE = 5
+MIN_SE_SCORE = 5
