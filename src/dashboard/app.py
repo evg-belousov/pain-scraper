@@ -172,10 +172,9 @@ def show_deep_analysis(analysis: dict):
     except:
         competitors = []
     if competitors:
-        with st.expander("Competitors"):
-            for comp in competitors:
-                st.markdown(f"**{comp.get('name', 'Unknown')}** ({comp.get('price_range', '?')})")
-                st.markdown(f"  Weakness: {comp.get('weakness', '')}")
+        st.markdown("##### Competitors")
+        for comp in competitors[:3]:
+            st.markdown(f"**{comp.get('name', 'Unknown')}** ({comp.get('price_range', '?')}) - {comp.get('weakness', '')[:60]}")
 
     # Risks
     try:
@@ -183,9 +182,9 @@ def show_deep_analysis(analysis: dict):
     except:
         risks = []
     if risks:
-        with st.expander("Risks"):
-            for risk in risks:
-                st.markdown(f"⚠️ {risk}")
+        st.markdown("##### Risks")
+        for risk in risks[:3]:
+            st.markdown(f"⚠️ {risk[:80]}")
 
 
 def show_stats_tab(db):
