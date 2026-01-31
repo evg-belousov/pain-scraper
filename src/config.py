@@ -59,7 +59,52 @@ YOUTUBE_SEARCHES = [
     "real estate agent struggles",
 ]
 
+# Reddit - subreddits and keywords for Pullpush API
+REDDIT_SUBREDDITS = [
+    # Business
+    "smallbusiness",
+    "Entrepreneur",
+    "startups",
+    "ecommerce",
+
+    # SaaS / Tech
+    "SaaS",
+    "microsaas",
+    "indiehackers",
+    "webdev",
+
+    # Professions
+    "freelance",
+    "consulting",
+    "realtors",
+    "accounting",
+    "restaurateur",
+
+    # Productivity
+    "productivity",
+    "automation",
+]
+
+REDDIT_PAIN_KEYWORDS = [
+    "frustrated",
+    "annoying",
+    "waste time",
+    "manual process",
+    "looking for",
+    "anyone know",
+    "is there a tool",
+    "I wish",
+    "hate when",
+    "struggle with",
+    "tedious",
+    "nightmare",
+    "pain in the ass",
+    "so slow",
+    "broken",
+]
+
 # Minimum thresholds
 MIN_HN_SCORE = 10
 MIN_REVIEW_LENGTH = 100
 MIN_YOUTUBE_LIKES = 50
+MIN_REDDIT_SCORE = 5
